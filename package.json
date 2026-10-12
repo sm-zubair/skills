@@ -1,0 +1,19 @@
+{
+  "name": "mz-agent-skills",
+  "version": "1.0.0",
+  "scripts": {},
+  "author": "Muhammad Zubair",
+  "private": true,
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.11.2",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.11.2",
+  "type": "module",
+  "dependencies": {
+    "oxfmt": "^0.72.0"
+  }
+}
