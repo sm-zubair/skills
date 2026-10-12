@@ -41,28 +41,6 @@ Ask all three in one message. Suggested form:
 
 Only then read §1–§17 and scaffold. Do not ask about anything the document already decides (stack, tooling, ports) — decide those, don't ask.
 
----
-
-## 0.6 Command map — where things run
-
-**Every command in this document is run from the workspace root.** The root `package.json` proxies the app's work with `pnpm -F <app>` and invokes the tooling directly against `app/<app>`. Do not `cd` into the app package to run any of these.
-
-| Command                                  | Root | Resolves to                                |
-| ---------------------------------------- | ---- | ------------------------------------------ |
-| `pnpm install`                           | root | one lockfile for the whole workspace       |
-| `pnpm dev`                               | root | `next dev -p 3000` in `app/<app>`          |
-| `pnpm build` / `pnpm start`              | root | `next build` / `next start` in `app/<app>` |
-| `pnpm typecheck`                         | root | `tsc --noEmit` in `app/<app>`              |
-| `pnpm lint` / `pnpm lint:fix`            | root | `oxlint [app/<app>]` — root binary         |
-| `pnpm format` / `pnpm format:check`      | root | `oxfmt [app/<app>]` — root binary          |
-| `pnpm db:push` / `db:seed` / `db:studio` | root | drizzle-kit / seed script in `app/<app>`   |
-| `pnpm codegen`                           | root | `graphql-codegen` in `app/<app>`           |
-| `pnpm verify`                            | root | typecheck + lint + format:check + build    |
-
-`pnpm add <pkg>` for app dependencies must run **inside `app/<app>/`** (or use `pnpm -F <app> add <pkg>`); tooling installs run at the root.
-
----
-
 ## 1. Stack
 
 | Layer               | Choice                                                                                                    |
