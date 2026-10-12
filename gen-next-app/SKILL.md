@@ -17,7 +17,7 @@ Rule: **no domain entities are created by this document.** The only entity wired
 - **Node ≥ 22**, declared in root `engines`. `node --env-file-if-exists` (scripts, §14) and the Next/drizzle toolchain both assume it.
 - **Versions are always the latest available** at scaffold time. Do not copy pinned versions from anywhere; resolve each package with `pnpm add <pkg>@latest` / `pnpm add -D <pkg>@latest`, then commit whatever the lockfile resolves. The version list below is a _role_ list, not a version spec.
 - Do not add packages beyond the role lists in §3 without explicit approval (name, latest version, weekly downloads, why, alternatives).
-- Verification loop for every change: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build`. No test suite is configured.
+- Verification is split across two directories: from the root `pnpm lint` + `pnpm format:check`, from `<app>/` `pnpm typecheck` + `pnpm build`. No test suite is configured.
 - **oxfmt** is the formatter and **oxlint** is the linter (see §4 and §13). No ESLint, no Prettier, no Biome.
 - Comments explain _why_, one line, never _what_.
 
@@ -29,14 +29,14 @@ Rule: **no domain entities are created by this document.** The only entity wired
 
 1. **Root project name** — the repository / workspace name. Kebab-case, e.g. `acme-crm`. Goes in root `package.json#name`.
 2. **Root description** — one line describing the whole project. Goes in root `package.json#description`.
-3. **App package name** — the name of the Next.js. This is a _directory_ name and a _package_ name, so keep it short and kebab-case (e.g. `admin`, `dashboard`, `web`, `backoffice`). If the user has no preference, propose `<root>` itself (e.g. `acme-crm`) and say so in the question.
+3. **App package name** — the name of the Next.js. This is a _directory_ name and a _package_ name, so keep it short and kebab-case (e.g. `admin`, `dashboard`, `web`, `backoffice`). It becomes a folder directly under the workspace root: `<root>/<app>/`. This answer is independent of answer 1 — the two do not have to match. If the user has no preference, propose `<root>` itself (e.g. `acme-crm`) and say so in the question.
 
 Ask all three in one message. Suggested form:
 
 ```
 1. Root package name? (kebab-case, used for the repo + workspace)  e.g. acme-crm
 2. Short description of the project?                                  e.g. CRM for the sales team
-3. Name for the app? (folder + package name)               e.g. admin
+3. Name for the app? (folder + package name, sits under the root)  e.g. admin
 ```
 
 Only then read §1–§17 and scaffold. Do not ask about anything the document already decides (stack, tooling, ports) — decide those, don't ask.
@@ -60,102 +60,102 @@ Only then read §1–§17 and scaffold. Do not ask about anything the document a
 
 **pnpm workspace with two layers**, which is what makes it a monorepo even though there is one app:
 
-| Layer            | Holds                                                                                       | Never holds      |
-| ---------------- | ------------------------------------------------------------------------------------------- | ---------------- |
-| **root**         | `oxlint`, `oxfmt`, `oxlint-tsgolint` + their configs, `pnpm-workspace.yaml`, shared scripts | app runtime deps |
-| **`app/<app>/`** | the Next.js app and **all** of its dependencies                                             | the tooling      |
+| Layer        | Holds                                                                                       | Never holds      |
+| ------------ | ------------------------------------------------------------------------------------------- | ---------------- |
+| **root**     | `oxlint`, `oxfmt`, `oxlint-tsgolint` + their configs, `pnpm-workspace.yaml`, shared scripts | app runtime deps |
+| **`<app>/`** | the Next.js app and **all** of its dependencies                                             | the tooling      |
 
 The tooling lives **only** at the root and is never duplicated into the app package. Consequences you must respect throughout this document:
 
 - The app's `package.json` has **no** `lint`/`format` scripts — the root owns them, and they take the app directory as an argument.
-- Every verification command runs **from the root**, never from inside `app/<app>/`.
-- Install app dependencies from `app/<app>/` (`pnpm add` there), tooling from the root. One lockfile, one `node_modules` at the root with pnpm symlinks per package.
+- The root has **no pass-through scripts for the app**. `dev`, `build`, `start`, `typecheck`, `codegen` and the `db:*` scripts run **from inside `<app>/`**, where that package's own binaries resolve.
+- Only `lint`, `lint:fix`, `format` and `format:check` run **from the root**, and they take `.` — one command lints and formats the root files _and_ every package folder, so a second app is covered with no script change. Everywhere else in this document a command carries a `[root]` or `[app]` tag saying where it runs.
+- Install app dependencies from `<app>/` (`pnpm add` there), tooling from the root. `pnpm install` runs once, from the root. One lockfile, one `node_modules` at the root with pnpm symlinks per package.
 
 ---
 
 ## 2. Directory tree (create exactly this)
 
-`<root>` is the repo folder from §0.5 answer 1, `<app>` is **the same string** — that answer is also the app package name, so the app folder under `app/` is `app/<root>/`. Substitute one name for both placeholders everywhere.
+`<root>` is the repo folder from §0.5 answer 1. `<app>` is §0.5 answer 3 — an **independent** answer, so the app package folder is `<root>/<app>/` (e.g. `clock-tower/admin/`). Substitute answer 1 wherever you see `<root>` and answer 3 wherever you see `<app>`; the two may legitimately differ.
 
 ```
 <root>/
-├─ app/
-│  └─ <app>/                      ← the Next.js package; everything below is relative to THIS folder
-│     ├─ app/                     ← App Router (note: app/<app>/app/, this is intentional)
-│     │  ├─ layout.tsx            # root layout: html/head/body, MantineProvider, providers
-│     │  ├─ global.css            # mantine css imports + theme vars
-│     │  ├─ page.tsx              # home / module launcher (server component, session-gated)
-│     │  ├─ login/page.tsx        # user picker + secret entry
-│     │  ├─ api/
-│     │  │  ├─ route.ts           # authenticated GraphQL endpoint (/api)
-│     │  │  └─ public/route.ts    # unauthenticated GraphQL endpoint (/api/public)
-│     │  └─ <module>/             # one folder per feature area, e.g. manage/
-│     │     ├─ layout.tsx         # shell + role gate for that area
-│     │     └─ <entity>/page.tsx  # CRUD screens
-│     ├─ components/              # 'use client' shared UI
-│     │  ├─ providers.tsx
-│     │  ├─ confirm.tsx
-│     │  ├─ data-table.tsx
-│     │  ├─ user.tsx
-│     │  └─ setting-control.tsx
-│     ├─ database/
-│     │  ├─ index.ts              # drizzle client + schema registry
-│     │  └─ models/
-│     │     ├─ base.model.ts
-│     │     └─ <entity>.model.ts  # table (+ relations when needed)
-│     ├─ graphql/
-│     │  ├─ schema.ts             # builds the authenticated schema (memoized)
-│     │  ├─ client.ts             # Apollo client factory (browser + server use)
-│     │  ├─ scalars.ts            # DateTime scalar + one scalar per entity id + registerEnumType
-│     │  ├─ decorators.ts         # shared @Pagination() arg + PaginationInput
-│     │  ├─ loaders.ts            # DataLoaders, one per hot relation
-│     │  ├─ request-context.ts
-│     │  ├─ inputs/<entity>.input.ts
-│     │  ├─ types/<entity>.type.ts
-│     │  ├─ types/success-payload.ts
-│     │  ├─ resolvers/<entity>.resolver.ts
-│     │  └─ operations/
-│     │     ├─ queries.graphql
-│     │     └─ mutations.graphql
-│     ├─ lib/
-│     │  ├─ auth.ts               # next-auth options
-│     │  ├─ common.state.ts       # makeVar global UI state
-│     │  └─ helpers.ts
-│     ├─ scripts/                 # plain .mjs run by bare node — never .ts, never tsx (§14)
-│     ├─ types/
-│     │  ├─ enums.ts              # plain TS enums, registered into GraphQL
-│     │  ├─ identities.ts         # branded nominal id types
-│     │  ├─ gql.ts                # GENERATED — do not hand-edit
-│     │  └─ next-auth.d.ts        # session/JWT augmentation
-│     ├─ public/
-│     │  ├─ logo.png, default-logo.png
-│     │  └─ <uploads>/            # user-uploaded files (gitignored)
-│     ├─ codegen.ts
-│     ├─ drizzle.config.ts
-│     ├─ next.config.ts
-│     ├─ next-env.d.ts            # generated by next
-│     ├─ package.json             # app deps only — NO lint/format scripts
-│     ├─ postcss.config.mjs
-│     ├─ tsconfig.json
-│     ├─ .env                     # gitignored, app-scoped
-│     └─ dev.db                   # gitignored, created by db:push
-├─ .oxlintrc.json                 # linter config (type-aware) — ROOT ONLY
-├─ .oxfmtrc.json                  # formatter config — ROOT ONLY
-├─ .gitignore                     # one file, covers every package
-├─ AGENTS.md                      # repo-local agent instructions
-├─ package.json                   # root: name + description + tooling + shared scripts
-├─ pnpm-workspace.yaml            # workspace globs + pnpm settings
-├─ pnpm-lock.yaml                 # one lockfile for the whole workspace
+├─ <app>/                     ← the Next.js package, directly under the workspace root
+│  ├─ app/                    ← App Router (note: <app>/app/, this is intentional)
+│  │  ├─ layout.tsx           # root layout: html/head/body, MantineProvider, providers
+│  │  ├─ global.css           # mantine css imports + theme vars
+│  │  ├─ page.tsx             # home / module launcher (server component, session-gated)
+│  │  ├─ login/page.tsx       # user picker + secret entry
+│  │  ├─ api/
+│  │  │  ├─ route.ts          # authenticated GraphQL endpoint (/api)
+│  │  │  └─ public/route.ts   # unauthenticated GraphQL endpoint (/api/public)
+│  │  └─ <module>/            # one folder per feature area, e.g. manage/
+│  │     ├─ layout.tsx        # shell + role gate for that area
+│  │     └─ <entity>/page.tsx # CRUD screens
+│  ├─ components/             # 'use client' shared UI
+│  │  ├─ providers.tsx
+│  │  ├─ confirm.tsx
+│  │  ├─ data-table.tsx
+│  │  ├─ user.tsx
+│  │  └─ setting-control.tsx
+│  ├─ database/
+│  │  ├─ index.ts             # drizzle client + schema registry
+│  │  └─ models/
+│  │     ├─ base.model.ts
+│  │     └─ <entity>.model.ts # table (+ relations when needed)
+│  ├─ graphql/
+│  │  ├─ schema.ts            # builds the authenticated schema (memoized)
+│  │  ├─ client.ts            # Apollo client factory (browser + server use)
+│  │  ├─ scalars.ts           # DateTime scalar + one scalar per entity id + registerEnumType
+│  │  ├─ decorators.ts        # shared @Pagination() arg + PaginationInput
+│  │  ├─ loaders.ts           # DataLoaders, one per hot relation
+│  │  ├─ request-context.ts
+│  │  ├─ inputs/<entity>.input.ts
+│  │  ├─ types/<entity>.type.ts
+│  │  ├─ types/success-payload.ts
+│  │  ├─ resolvers/<entity>.resolver.ts
+│  │  └─ operations/
+│  │     ├─ queries.graphql
+│  │     └─ mutations.graphql
+│  ├─ lib/
+│  │  ├─ auth.ts              # next-auth options
+│  │  ├─ common.state.ts      # makeVar global UI state
+│  │  └─ helpers.ts
+│  ├─ scripts/                # plain .mjs run by bare node — never .ts, never tsx (§14)
+│  ├─ types/
+│  │  ├─ enums.ts             # plain TS enums, registered into GraphQL
+│  │  ├─ identities.ts        # branded nominal id types
+│  │  ├─ gql.ts               # GENERATED — do not hand-edit
+│  │  └─ next-auth.d.ts       # session/JWT augmentation
+│  ├─ public/
+│  │  ├─ logo.png, default-logo.png
+│  │  └─ <uploads>/           # user-uploaded files (gitignored)
+│  ├─ codegen.ts
+│  ├─ drizzle.config.ts
+│  ├─ next.config.ts
+│  ├─ next-env.d.ts           # generated by next
+│  ├─ package.json            # app deps only — NO lint/format scripts
+│  ├─ postcss.config.mjs
+│  ├─ tsconfig.json
+│  ├─ .env                    # gitignored, app-scoped
+│  └─ dev.db                  # gitignored, created by db:push
+├─ .oxlintrc.json              # linter config (type-aware) — ROOT ONLY
+├─ .oxfmtrc.json               # formatter config — ROOT ONLY
+├─ .gitignore                  # one file, covers every package
+├─ AGENTS.md                   # repo-local agent instructions
+├─ package.json                # root: name + description + tooling + shared scripts
+├─ pnpm-workspace.yaml         # workspace globs + pnpm settings
+├─ pnpm-lock.yaml              # one lockfile for the whole workspace
 └─ README.md
 ```
 
 Rules:
 
-- The App Router folder lives at `app/<app>/app/`. Next.js requires `app/` relative to the package root; do not "fix" the double `app` by moving things.
-- `app/<app>/tsconfig.json` sets `"@/*": ["./*"]` — the alias maps to the **package** root, not the workspace root. `@/components/...` resolves inside the app package.
+- The App Router folder lives at `<app>/app/`. Next.js requires `app/` relative to the package root; do not "fix" the double `app` by moving things.
+- `<app>/tsconfig.json` sets `"@/*": ["./*"]` — the alias maps to the **package** root, not the workspace root. `@/components/...` resolves inside the app package.
 - `.gitignore`, `.oxlintrc.json`, `.oxfmtrc.json`, `AGENTS.md` and `package.json` are workspace-level single copies. If a second app is ever added, it reuses all of them unchanged.
 - Never create `src/`.
-- From §5 onward, every file path in this document is **relative to `app/<app>/`** unless it is explicitly prefixed with `app/<app>/` or described as root-level. So `types/identities.ts` means `app/<app>/types/identities.ts`.
+- From §5 onward, every file path in this document is **relative to `<app>/`** unless it is explicitly prefixed with `<app>/` or described as root-level. So `types/identities.ts` means `<app>/types/identities.ts`.
 
 ---
 
@@ -163,7 +163,9 @@ Rules:
 
 ### Root `package.json`
 
-Name and description come straight from the §0.5 answers. It owns the tooling and **all** shared scripts, each one prefixed with the workspace filter so it targets the app package. The app's own `dev`/`build`/`db:*`/`codegen` scripts stay on the app package and are called with `-F` (filter).
+Name and description come straight from the §0.5 answers. It owns the tooling and the **only** scripts in the workspace: the four lint/format commands, which must live here because the binaries only exist in the root `node_modules`.
+
+The root has **no pass-through to the app** — no `dev`, `build`, `start`, `typecheck`, `codegen` or `verify`. Those run from inside `<app>/` instead (§1). Do not reintroduce them "for convenience".
 
 ```jsonc
 {
@@ -178,20 +180,12 @@ Name and description come straight from the §0.5 answers. It owns the tooling a
   "packageManager": "pnpm@<your pnpm>",
   "engines": { "node": ">=22" },
   "scripts": {
-    // pass-through to the app package
-    "dev": "pnpm -F <app> dev",
-    "build": "pnpm -F <app> build",
-    "start": "pnpm -F <app> start",
-    "typecheck": "pnpm -F <app> typecheck",
-    "codegen": "pnpm -F <app> codegen",
-
-    // tooling runs HERE — the binary only exists in the root node_modules
-    "lint": "oxlint",
-    "lint:fix": "oxlint --fix",
-    "format": "oxfmt",
-    "format:check": "oxfmt --check",
-
-    "verify": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm build",
+    // tooling only — these four are the ONLY scripts the root owns.
+    // `.` = the whole workspace: root files plus every package folder.
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
   },
   "devDependencies": {
     "oxfmt": "<latest>",
@@ -201,9 +195,9 @@ Name and description come straight from the §0.5 answers. It owns the tooling a
 }
 ```
 
-Substitute `<app>` with the §0.5 answer 1 folder name everywhere — including inside the `lint`/`format` paths. It is the same string as `<root>`. Do not add `oxlint`/`oxfmt`/`oxlint-tsgolint` to the app package.
+Substitute `<app>` only where the name itself appears (`.env`, cookie prefixes). The lint/format scripts take `.`, not a package name — one command covers the root files and every package folder. Do not add `oxlint`/`oxfmt`/`oxlint-tsgolint` to the app package.
 
-### `app/<app>/package.json`
+### `<app>/package.json`
 
 No `lint`, no `format`, no `typecheck` that reaches for root binaries — but `tsc` and `drizzle-kit` _are_ local devDeps of the app, so `typecheck` and the `db:*` scripts work from here.
 
@@ -227,7 +221,7 @@ No `lint`, no `format`, no `typecheck` that reaches for root binaries — but `t
 
 There is deliberately **no** `db:generate` / `db:migrate` script on the app package. Schema changes are applied with `pnpm db:push`; a SQL migration workflow is not part of this stack (§16). Do not add them back "just in case".
 
-Dependencies — install the **latest** of each into `app/<app>/`: `@apollo/client`, `@apollo/client-integration-nextjs`, `@graphql-yoga/plugin-persisted-operations`, `@libsql/client`, `@mantine/core`, `@mantine/hooks`, `@mantine/notifications`, `@tabler/icons-react`, `@tanstack/react-table`, `class-validator`, `clsx`, `dataloader`, `drizzle-orm`, `graphql`, `graphql-yoga`, `next`, `next-auth`, `postcss`, `postcss-preset-mantine`, `react`, `react-dom`, `react-hook-form`, `reflect-metadata`, `rxjs`, `type-graphql`, `uuid`.
+Dependencies — install the **latest** of each into `<app>/`: `@apollo/client`, `@apollo/client-integration-nextjs`, `@graphql-yoga/plugin-persisted-operations`, `@libsql/client`, `@mantine/core`, `@mantine/hooks`, `@mantine/notifications`, `@tabler/icons-react`, `@tanstack/react-table`, `class-validator`, `clsx`, `dataloader`, `drizzle-orm`, `graphql`, `graphql-yoga`, `next`, `next-auth`, `postcss`, `postcss-preset-mantine`, `react`, `react-dom`, `react-hook-form`, `reflect-metadata`, `rxjs`, `type-graphql`, `uuid`.
 
 Dev (app only): `@graphql-codegen/cli`, `@graphql-typed-document-node/core`, `@types/node`, `@types/react`, `@types/react-dom`, `drizzle-kit`, `typescript`, `typescript-eslint`.
 
@@ -235,11 +229,11 @@ Lock `@mantine/*` and `react`/`react-dom` to exact matching versions across the 
 
 ### Root `pnpm-workspace.yaml`
 
-Now a real workspace — it declares the packages **and** carries pnpm settings.
+Now a real workspace — it declares the packages **and** carries pnpm settings. Every top-level directory is a package, so adding a second app later needs no edit here.
 
 ```yaml
 packages:
-  - 'app/*'
+  - '*'
 
 allowBuilds:
   esbuild: true
@@ -251,15 +245,15 @@ allowBuilds:
 # warnings, do not copy a list from another repo
 ```
 
-There is no `pnpm-lock.yaml` inside `app/<app>/` — the workspace has exactly one lockfile, at the root. Run `pnpm install` from the root.
+There is no `pnpm-lock.yaml` inside `<app>/` — the workspace has exactly one lockfile, at the root. Run `pnpm install` from the root.
 
 ---
 
 ## 4. Config files
 
-Two root files (`.oxlintrc.json`, `.oxfmtrc.json`) and the rest inside `app/<app>/`.
+Two root files (`.oxlintrc.json`, `.oxfmtrc.json`) and the rest inside `<app>/`.
 
-### `app/<app>/tsconfig.json`
+### `<app>/tsconfig.json`
 
 Next defaults plus the three decorator flags (type-graphql is mandatory here). `@/*` maps to the **package** root:
 
@@ -290,7 +284,7 @@ Next defaults plus the three decorator flags (type-graphql is mandatory here). `
 }
 ```
 
-### `app/<app>/next.config.ts`
+### `<app>/next.config.ts`
 
 Mantine barrel-import optimization and TS CLI typechecking:
 
@@ -308,16 +302,16 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 ```
 
-### `app/<app>/postcss.config.mjs`
+### `<app>/postcss.config.mjs`
 
 ```js
 const config = { plugins: { 'postcss-preset-mantine': {} } };
 export default config;
 ```
 
-### `app/<app>/drizzle.config.ts`
+### `<app>/drizzle.config.ts`
 
-Schema is the models folder, URL comes from env. Paths are relative to the app package, so `pnpm db:push` must run with that package as cwd — which the root `pnpm -F <app> db:push` guarantees.
+Schema is the models folder, URL comes from env. Paths are relative to the app package, so `pnpm db:push` must run with that package as cwd — which it does when you run it from inside `<app>/`.
 
 ```ts
 import { defineConfig } from 'drizzle-kit';
@@ -332,7 +326,9 @@ export default defineConfig({
 
 ### Root `.oxlintrc.json`
 
-The linter, and it lives **at the workspace root only**. Type-aware (`typeAware` + `typeCheck` both on) so rules like `no-floating-promises` actually work; this needs `oxlint-tsgolint` in the **root** devDependencies. `scripts/*` and config files are ignored because they are plain `.mjs`/`.json` with no TS project behind them — they are still _formatted_, see §13.
+The linter, and it lives **at the workspace root only**. Type-aware (`typeAware` + `typeCheck` both on) so rules like `no-floating-promises` actually work; this needs `oxlint-tsgolint` in the **root** devDependencies. `options.typeAware`/`typeCheck` are only honoured in the _root_ config file — that is the reason there is exactly one `.oxlintrc.json` and never a nested one.
+
+`ignorePatterns` are resolved relative to this file, so with a workspace-wide `oxlint .` they must be written as root-relative globs (`**/…`), not bare filenames. `scripts/*` and config files are ignored because they are plain `.mjs`/`.json` with no TS project behind them — they are still _formatted_, see §13.
 
 ```jsonc
 {
@@ -348,8 +344,8 @@ The linter, and it lives **at the workspace root only**. Type-aware (`typeAware`
     "build/**",
     "next-env.d.ts",
     "node_modules/**",
-    "postcss.config.mjs",
-    "drizzle.config.ts",
+    "**/postcss.config.mjs",
+    "**/drizzle.config.ts",
     "**/scripts/*",
   ],
   "rules": {
@@ -411,9 +407,9 @@ The formatter, at the workspace root only. `sortImports` is what keeps the alpha
 }
 ```
 
-### `app/<app>/.env`
+### `<app>/.env`
 
-App-scoped, never committed — commit `app/<app>/.env.example` instead so the next person knows what to fill in.
+App-scoped, never committed — commit `<app>/.env.example` instead so the next person knows what to fill in.
 
 ```
 DATABASE_FILE=file:dev.db
@@ -422,11 +418,11 @@ AUTH_URL=http://localhost:3000
 IMAGE_BASE_URL=http://localhost:3000
 ```
 
-Next.js only loads `.env` from the package it is running in, so this file lives in `app/<app>/`, **not** at the workspace root. `pnpm -F <app> dev` sets the cwd there, which is why `.env` is found.
+Next.js only loads `.env` from the package it is running in, so this file lives in `<app>/`, **not** at the workspace root. Running `pnpm dev` from inside `<app>/` puts the cwd there, which is why `.env` is found.
 
 ### Root `.gitignore`
 
-One file for the whole workspace. Must include `node_modules`, `.next/`, `out/`, `build`, `dist`, `*.tsbuildinfo`, `next-env.d.ts`, `.env*`, `*.db`, `.drizzle`, `app/*/public/<uploads>/`, `.vercel`, `coverage`.
+One file for the whole workspace. Must include `node_modules`, `.next/`, `out/`, `build`, `dist`, `*.tsbuildinfo`, `next-env.d.ts`, `.env*`, `*.db`, `.drizzle`, `*/public/<uploads>/`, `.vercel`, `coverage`.
 
 **Port 3000 is fixed.** `codegen.ts`, `graphql/client.ts` and any sibling frontend hard-code `http://localhost:3000/api`. Bake `-p 3000` into the app's `dev` script so it cannot drift.
 
@@ -861,7 +857,7 @@ Import operations and enums from `@/types/gql` by plain name (`import { GetUsers
 
 `graphql/operations/queries.graphql` and `mutations.graphql` hold every client operation. Naming: `Get<Entity>` / `Get<Entity>For<Purpose>` queries, `Create/Update/Delete<Entity>` mutations. Never select a sensitive field (secrets, password hashes) in an operation unless the resolver guards it with `@Authorized`.
 
-**`app/<app>/codegen.ts`** — introspects the _running_ server, so order matters. `documents` and `generates` paths are relative to the app package, which is the cwd when you run `pnpm codegen` from the root:
+**`<app>/codegen.ts`** - introspects the _running_ server, so order matters. `documents` and `generates` paths are relative to the app package, which is the cwd when you run `pnpm codegen` from inside `<app>/`:
 
 ```ts
 import type { CodegenConfig } from '@graphql-codegen/cli';
@@ -896,22 +892,23 @@ Procedure: **start `pnpm dev` → `pnpm codegen`** → `pnpm typecheck`. Re-run 
 
 ## 13. Lint & format
 
-Both tools are **root-only** — installed in the root `package.json`, configured by the root `.oxlintrc.json` / `.oxfmtrc.json`, and run from the root against the app package:
+Both tools are **root-only** — installed in the root `package.json`, configured by the root `.oxlintrc.json` / `.oxfmtrc.json`, and run once from the root over the **whole workspace** (`.`), which covers the root files and every package folder:
 
-|            | Binary lives in | Config                | Command                           |
-| ---------- | --------------- | --------------------- | --------------------------------- |
-| **oxlint** | root devDeps    | root `.oxlintrc.json` | `pnpm lint` → `oxlint app/<app>`  |
-| **oxfmt**  | root devDeps    | root `.oxfmtrc.json`  | `pnpm format` → `oxfmt app/<app>` |
+|            | Binary lives in | Config                | Command                   |
+| ---------- | --------------- | --------------------- | ------------------------- |
+| **oxlint** | root devDeps    | root `.oxlintrc.json` | `pnpm lint` → `oxlint .`  |
+| **oxfmt**  | root devDeps    | root `.oxfmtrc.json`  | `pnpm format` → `oxfmt .` |
 
 - **`oxlint`** — the linter. Type-aware, so it catches real bugs (`no-floating-promises`, `no-unsafe-*`, `require-await`) that a syntax-only linter misses. Requires `oxlint-tsgolint` in the **root** devDependencies; without it the type-aware rules silently do nothing. Run `pnpm lint`, fix with `pnpm lint:fix`.
-- **`oxfmt`** — the formatter. Non-negotiable: it sorts imports and normalizes quotes/width, which is why every file looks the same. `pnpm format` writes, `pnpm format:check` verifies without writing.
+- **`oxfmt`** — the formatter. Non-negotiable: it sorts imports and normalizes quotes/width, which is why every file looks the same. `pnpm format` writes, `pnpm format:check` verifies without writing. It natively formats `.ts`/`.tsx`, `.json`, `.css`, `.graphql`, `.yaml` **and `.md`**, so a workspace-wide run also covers `README.md`, `AGENTS.md` and the `operations/*.graphql` documents.
 
-Two traps worth knowing:
+Three traps worth knowing:
 
-- The app package has **no** `lint`/`format` script and no `oxlint` dependency. `pnpm -F <app> lint` fails with "command not found" — that is expected, not a bug. Use the root scripts.
-- The linter must resolve the app's `tsconfig.json` for its type-aware rules, so always pass the app directory (`oxlint app/<app>`), never a bare `oxlint .` from the root — the root has no tsconfig and the type rules go quiet.
+- The app package has **no** `lint`/`format` script and no `oxlint` dependency, so `pnpm lint` run from inside `<app>/` fails with "command not found" — that is expected, not a bug. Use the root scripts.
+- **Always run these from the root.** oxlint discovers `.oxlintrc.json` in the _current working directory_, so a run started inside `<app>/` silently gets the default config — no type-aware rules, no `sortImports`.
+- **Do not add a root `tsconfig.json`.** Type-aware rules still work workspace-wide because `tsgolint` assigns each file to its nearest `tsconfig` and builds one program per project (`admin/tsconfig.json` and friends), not one program from the cwd. The actual monorepo hazard is the opposite of what you might assume: a root `tsconfig.json` with a broad `include` such as `**/*` merges the entire repo into a single huge program and type-aware linting crawls. If a root `tsconfig.json` is ever genuinely needed, give it `{ "files": [] }`.
 
-`scripts/*` and config files are lint-ignored — plain `.mjs`/`.json` with no TS project behind them.
+`scripts/*` and config files are lint-ignored — plain `.mjs`/`.json` with no TS project behind them. They are still _formatted_; oxfmt resolves `.gitignore` and skips `node_modules`, `.git` and lockfiles on its own, so `oxfmt .` never walks `.next/` or `dev.db`.
 
 ---
 
@@ -925,7 +922,7 @@ Plain `.mjs`, run with `node`. **`tsx` is not installed — do not write `.ts` s
 
 ## 15. Adding an entity — the complete checklist
 
-Every step is required; a missing one fails silently (unregistered table, untyped id, stale `gql.ts`). Paths below are relative to `app/<app>/`; commands run from the workspace root.
+Every step is required; a missing one fails silently (unregistered table, untyped id, stale `gql.ts`). Paths below are relative to `<app>/`. Commands are tagged with where they run: **[root]** = workspace root, **[app]** = inside `<app>/`.
 
 1. `types/identities.ts` — add `export type <Entity>Id = Nominal<string, '<Entity>Id'>;`
 2. `database/models/<entity>.model.ts` — table (spread `id.$type<EntityId>()`, `...timestamps`, `...auditFields`), relations if needed, `export type <Entity>Model = typeof <table>.$inferSelect;`
@@ -939,36 +936,36 @@ Every step is required; a missing one fails silently (unregistered table, untype
 10. `graphql/loaders.ts` — a DataLoader for each relation resolved on a list.
 11. `types/enums.ts` — new enums + route paths.
 12. `graphql/operations/{queries,mutations}.graphql` — the client operations.
-13. `pnpm db:push`.
-14. `pnpm dev` in one shell → `pnpm codegen` in another.
+13. **[app]** `pnpm db:push`.
+14. **[app]** `pnpm dev` in one shell → `pnpm codegen` in another.
 15. `app/<module>/<entity>/page.tsx` - copy the CRUD page pattern, using `<DataTable>`.
-16. `pnpm format`, then `pnpm typecheck && pnpm lint && pnpm format:check && pnpm build` (or just `pnpm verify`).
+16. **[root]** `pnpm format`, then **[root]** `pnpm lint && pnpm format:check` and **[app]** `pnpm typecheck && pnpm build`.
 
 ---
 
 ## 16. AGENTS.md (commit this with the project)
 
-The root `AGENTS.md` must restate, briefly: pnpm only; no new packages without approval (name, latest version, weekly downloads, why, alternatives); **the monorepo layout** — tooling (`oxlint`, `oxfmt`) lives only at the root, the Next app and all its deps live in `app/<app>/`, all lint/format/verify commands run from the root; stack overview; the §15 checklist; dev server on port 3000 and `pnpm codegen` introspects the running server; apply schema changes with `pnpm db:push`, never `generate`/`migrate`; `app/<app>/.env` needs `DATABASE_FILE`, `AUTH_SECRET`, `AUTH_URL`; verification is `pnpm verify`.
+The root `AGENTS.md` must restate, briefly: pnpm only; no new packages without approval (name, latest version, weekly downloads, why, alternatives); **the monorepo layout** — tooling (`oxlint`, `oxfmt`) lives only at the root, the Next app and all its deps live in `<app>/`; the root owns **only** `lint`, `lint:fix`, `format` and `format:check`, which run from the root over the **whole workspace** (`.` — root files plus every package folder), while every other command (`dev`, `build`, `start`, `typecheck`, `codegen`, `db:*`) runs from inside `<app>/` — there is no root pass-through and no `pnpm verify`; stack overview; the §15 checklist; dev server on port 3000 and `pnpm codegen` introspects the running server; apply schema changes with `pnpm db:push`, never `generate`/`migrate`; `<app>/.env` needs `DATABASE_FILE`, `AUTH_SECRET`, `AUTH_URL`.
 
 ---
 
 ## 17. Scaffolding order
 
 0. **Ask** the §0.5 questions. Do not start before you have the folder name and the description.
-1. Create the root folder `<root>/` and `app/<root>/`. Write root `package.json` (name from answer 1, description from answer 2), root `pnpm-workspace.yaml` (`packages: ['app/*']`), root `.gitignore`, root `AGENTS.md`.
+1. Create the root folder `<root>/` and `<app>/` inside it. Write root `package.json` (name from answer 1, description from answer 2), root `pnpm-workspace.yaml` (`packages: ['*']`), root `.gitignore`, root `AGENTS.md`.
 2. Write the app's `package.json`, then `pnpm install` **from the root**.
 3. From the root, install the tooling: `pnpm add -D oxlint oxfmt oxlint-tsgolint`.
-4. From `app/<app>/`, install every app dependency + app devDependency at latest.
+4. From `<app>/`, install every app dependency + app devDependency at latest.
 5. Write root `.oxlintrc.json` and `.oxfmtrc.json` (copy §4 verbatim).
 6. Write the app configs: `tsconfig.json`, `next.config.ts`, `postcss.config.mjs`, `drizzle.config.ts`, `.env`.
-7. `app/<app>/types/` — identities, enums, next-auth.d.ts.
-8. `app/<app>/database/` — base.model, user.model, index.
-9. `app/<app>/graphql/` — scalars, decorators, request-context, schema, client, loaders, user type/input/resolver, success-payload.
-10. `app/<app>/lib/` — auth, common.state, helpers.
-11. `app/<app>/app/api/route.ts`, `app/api/public/route.ts`, `app/layout.tsx`, `app/global.css`.
-12. `app/<app>/components/` — providers, confirm, data-table, user, setting-control.
-13. `app/<app>/app/page.tsx`, `login/page.tsx`, `manage/layout.tsx`, `manage/users/page.tsx`.
-14. `app/<app>/scripts/seed.mjs`, `README.md`.
-15. `pnpm db:push` → `pnpm db:seed`.
-16. `pnpm dev`, then `pnpm codegen`.
-17. `pnpm verify`.
+7. `<app>/types/` — identities, enums, next-auth.d.ts.
+8. `<app>/database/` — base.model, user.model, index.
+9. `<app>/graphql/` — scalars, decorators, request-context, schema, client, loaders, user type/input/resolver, success-payload.
+10. `<app>/lib/` — auth, common.state, helpers.
+11. `<app>/app/api/route.ts`, `app/api/public/route.ts`, `app/layout.tsx`, `app/global.css`.
+12. `<app>/components/` — providers, confirm, data-table, user, setting-control.
+13. `<app>/app/page.tsx`, `login/page.tsx`, `manage/layout.tsx`, `manage/users/page.tsx`.
+14. `<app>/scripts/seed.mjs`, `README.md`.
+15. **[app]** `pnpm db:push` → `pnpm db:seed`.
+16. **[app]** `pnpm dev`, then `pnpm codegen`.
+17. **[root]** `pnpm format && pnpm lint && pnpm format:check`, and **[app]** `pnpm typecheck && pnpm build`.
